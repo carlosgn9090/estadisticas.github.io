@@ -1,0 +1,177 @@
+﻿@page "/"
+@using ConsultaEstadisticasTorneo.Data
+@using ConsultaEstadisticasTorneo.Models
+@using Microsoft.EntityFrameworkCore
+@using MudBlazor
+@inject ApplicationDbContext db
+@inject NavigationManager Navigation
+
+@if (cargando)
+{
+    <div class="center-spinner">
+        <MudProgressCircular Indeterminate="true" Size="Size.Large" />
+    </div>
+}
+else
+{
+    <MudContainer Class="mt-5">
+        @if (!string.IsNullOrEmpty(torneo?.Logo))
+        {
+            <div class="logo-container">
+                <img src="@torneo.Logo" alt="@torneo.Nombre" class="torneo-logo" />
+            </div>
+        }
+        <MudText Typo="Typo.h1" Align="Align.Center"><b>@torneo?.Nombre</b></MudText>
+
+        <br />
+
+        <MudText Typo="Typo.h1" Align="Align.Center">Equipos Participantes</MudText>
+
+        <MudGrid>
+            @foreach (var equipo in equipos)
+            {
+                <MudItem xs="12" sm="4">
+                    <MudCard>
+                        <MudCardContent>
+                            <MudText Typo="Typo.h5">@equipo.Nombre</MudText>
+                            <img src="@equipo.Logo" alt="@equipo.Nombre" class="equipo-logo" />
+                        </MudCardContent>
+                    </MudCard>
+                </MudItem>
+            }
+        </MudGrid>
+    </MudContainer>
+
+    <MudDivider Class="mt-4" />
+
+    <MudContainer Class="mt-4">
+        <MudText Typo="Typo.h4" Align="Align.Center"><b>Tabla de Posiciones</b></MudText>
+        <MudTable Items="tablaPosiciones" Striped="true" Hover="true">
+            <HeaderContent>
+                <MudTh>Pos.</MudTh>
+                <MudTh>Equipo</MudTh>
+                <MudTh>PJ</MudTh>
+                <MudTh>PG</MudTh>
+                <MudTh>PE</MudTh>
+                <MudTh>PP</MudTh>
+                <MudTh>GF</MudTh>
+                <MudTh>GC</MudTh>
+                <MudTh>Dif +/-</MudTh>
+                <MudTh>PTS</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.Pos</MudTd>
+                <MudTd>
+                    <MudLink Href="javascript:void(0);" OnClick="@(async () => await VerEstadisticasEquipo(context.Equipo.EquipoId))">
+                        <img src="@context.Equipo.Logo" alt="@context.Equipo.Nombre" style="width: 30px; height: 30px; border-radius: 10px;" /> @context.Equipo.Nombre
+                    </MudLink>
+                </MudTd>
+                <MudTd>@context.PJ</MudTd>
+                <MudTd>@context.PG</MudTd>
+                <MudTd>@context.PE</MudTd>
+                <MudTd>@context.PP</MudTd>
+                <MudTd>@context.GF</MudTd>
+                <MudTd>@context.GC</MudTd>
+                <MudTd>@context.Dif</MudTd>
+                <MudTd>@context.PTS</MudTd>
+            </RowTemplate>
+        </MudTable>
+
+        <MudDivider Class="mt-4" />
+
+        <MudText Typo="Typo.h4" Align="Align.Center"><b>Top 10 Goleadores</b></MudText>
+        <MudTable Items="topGoleadores" Striped="true" Hover="true">
+            <HeaderContent>
+                <MudTh>Equipo</MudTh>
+                <MudTh>Jugador</MudTh>
+                <MudTh>Goles</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd><img src="@context.Equipo.Logo" alt="@context.Equipo.Nombre" style="width: 30px; height: 30px; border-radius: 10px;" /> @context.Equipo.Nombre</MudTd>
+                <MudTd>@context.Jugador.Nombre</MudTd>
+                <MudTd>@context.Goles</MudTd>
+            </RowTemplate>
+        </MudTable>
+    </MudContainer>
+}
+
+@code {
+    private bool cargando = true;
+    private Torneo? torneo;
+    private List<Equipo> equipos = new List<Equipo>();
+    private List<PosicionEquipo> tablaPosiciones = new List<PosicionEquipo>();
+    private List<EstadisticaJugador> topGoleadores = new List<EstadisticaJugador>();
+    private readonly int torneoId = 1; // ID del torneo quemado
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarDatosAsync();
+        cargando = false;
+    }
+
+    private async Task CargarDatosAsync()
+    {
+        torneo = await db.Torneos.Include(t => t.Equipos).ThenInclude(e => e.PartidosLocal)
+                                 .Include(t => t.Equipos).ThenInclude(e => e.PartidosVisitante)
+                                 .Include(t => t.Equipos).ThenInclude(e => e.Jugadores)
+                                 .ThenInclude(j => j.Goles)
+                                 .FirstOrDefaultAsync(t => t.TorneoId == torneoId);
+
+        if (torneo != null)
+        {
+            equipos = torneo.Equipos.ToList();
+            tablaPosiciones = CalcularTablaPosiciones(equipos);
+            topGoleadores = CalcularTopGoleadores(torneo);
+        }
+    }
+
+    private List<PosicionEquipo> CalcularTablaPosiciones(List<Equipo> equipos)
+    {
+        var posiciones = equipos.Select(e => new PosicionEquipo
+            {
+                Pos = 0, // Se asignará más tarde
+                Equipo = e,
+                PJ = e.PartidosLocal.Count(p => !string.IsNullOrEmpty(p.Notas)) + e.PartidosVisitante.Count(p => !string.IsNullOrEmpty(p.Notas)),
+                PG = e.PartidosLocal.Count(p => p.GolesLocal > p.GolesVisitante && !string.IsNullOrEmpty(p.Notas)) +
+                     e.PartidosVisitante.Count(p => p.GolesVisitante > p.GolesLocal && !string.IsNullOrEmpty(p.Notas)),
+                PE = e.PartidosLocal.Count(p => p.GolesLocal == p.GolesVisitante && !string.IsNullOrEmpty(p.Notas)) +
+                     e.PartidosVisitante.Count(p => p.GolesVisitante == p.GolesLocal && !string.IsNullOrEmpty(p.Notas)),
+                PP = e.PartidosLocal.Count(p => p.GolesLocal < p.GolesVisitante && !string.IsNullOrEmpty(p.Notas)) +
+                     e.PartidosVisitante.Count(p => p.GolesVisitante < p.GolesLocal && !string.IsNullOrEmpty(p.Notas)),
+                GF = e.PartidosLocal.Sum(p => p.GolesLocal) + e.PartidosVisitante.Sum(p => p.GolesVisitante),
+                GC = e.PartidosLocal.Sum(p => p.GolesVisitante) + e.PartidosVisitante.Sum(p => p.GolesLocal),
+                PTS = (e.PartidosLocal.Count(p => p.GolesLocal > p.GolesVisitante && !string.IsNullOrEmpty(p.Notas)) +
+                       e.PartidosVisitante.Count(p => p.GolesVisitante > p.GolesLocal && !string.IsNullOrEmpty(p.Notas))) * 3 +
+                      (e.PartidosLocal.Count(p => p.GolesLocal == p.GolesVisitante && !string.IsNullOrEmpty(p.Notas)) +
+                       e.PartidosVisitante.Count(p => p.GolesVisitante == p.GolesLocal && !string.IsNullOrEmpty(p.Notas))),
+                Dif = (e.PartidosLocal.Sum(p => p.GolesLocal) + e.PartidosVisitante.Sum(p => p.GolesVisitante)) -
+                      (e.PartidosLocal.Sum(p => p.GolesVisitante) + e.PartidosVisitante.Sum(p => p.GolesLocal))
+            }).OrderByDescending(t => t.PTS).ToList();
+
+        for (int i = 0; i < posiciones.Count; i++)
+        {
+            posiciones[i].Pos = i + 1;
+        }
+
+        return posiciones;
+    }
+
+    private List<EstadisticaJugador> CalcularTopGoleadores(Torneo torneo)
+    {
+        return torneo.Equipos.SelectMany(e => e.Jugadores).Select(j => new EstadisticaJugador
+            {
+                Jugador = j,
+                Equipo = j.Equipo,
+                Goles = j.Goles.Count
+            })
+        .Where(e => e.Goles > 0)
+        .OrderByDescending(e => e.Goles)
+        .Take(10)
+        .ToList();
+    }
+
+    private async Task VerEstadisticasEquipo(int equipoId)
+    {
+        Navigation.NavigateTo($"/estadisticaporequipo/{equipoId}");
+    }
+}

@@ -1,0 +1,135 @@
+﻿@page "/estadisticaporequipo/{equipoId:int}"
+@using ConsultaEstadisticasTorneo.Data
+@using ConsultaEstadisticasTorneo.Models
+@using Microsoft.EntityFrameworkCore
+@using MudBlazor
+@inject ApplicationDbContext db
+@inject NavigationManager Navigation
+
+@if (cargando)
+{
+    <div class="center-spinner">
+        <MudProgressCircular Indeterminate="true" Size="Size.Large" />
+    </div>
+}
+else
+{
+    <MudContainer Class="mt-5">
+        <MudButton OnClick="Regresar" Color="Color.Primary" StartIcon="@Icons.Material.Filled.ArrowBack">Regresar</MudButton>
+
+        <MudGrid>
+            <MudItem xs="12" sm="12">
+                <MudText Typo="Typo.h3" Align="Align.Center">
+                    <img src="@equipo?.Logo" alt="@equipo?.Nombre" class="equipo-logo" /> @equipo?.Nombre
+                </MudText>
+            </MudItem>
+        </MudGrid>
+
+        <MudDivider Class="mt-4" />
+
+        <MudGrid>
+            <MudItem xs="12" sm="3">
+                <MudText Typo="Typo.h5" Align="Align.Center">Jugadores</MudText>
+                <MudTable Items="jugadores" Striped="true" Hover="true">
+                    <HeaderContent>
+                        <MudTh>Nombre</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd>@context.Nombre</MudTd>
+                    </RowTemplate>
+                </MudTable>
+            </MudItem>
+            <MudItem xs="12" sm="3">
+                <MudText Typo="Typo.h5" Align="Align.Center">Goleadores</MudText>
+                <MudTable Items="goleadores" Striped="true" Hover="true">
+                    <HeaderContent>
+                        <MudTh>Nombre</MudTh>
+                        <MudTh>Goles</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd>@context.Nombre</MudTd>
+                        <MudTd>@context.Goles</MudTd>
+                    </RowTemplate>
+                </MudTable>
+            </MudItem>
+            <MudItem xs="12" sm="3">
+                <MudText Typo="Typo.h5" Align="Align.Center">Tarjetas Amarillas</MudText>
+                <MudTable Items="jugadoresAmarillas" Striped="true" Hover="true">
+                    <HeaderContent>
+                        <MudTh>Nombre</MudTh>
+                        <MudTh>Amarillas</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd>@context.Nombre</MudTd>
+                        <MudTd>@context.Tarjetas</MudTd>
+                    </RowTemplate>
+                </MudTable>
+            </MudItem>
+            <MudItem xs="12" sm="3">
+                <MudText Typo="Typo.h5" Align="Align.Center">Tarjetas Rojas</MudText>
+                <MudTable Items="jugadoresRojas" Striped="true" Hover="true">
+                    <HeaderContent>
+                        <MudTh>Nombre</MudTh>
+                        <MudTh>Rojas</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd>@context.Nombre</MudTd>
+                        <MudTd>@context.Tarjetas</MudTd>
+                    </RowTemplate>
+                </MudTable>
+            </MudItem>
+        </MudGrid>
+    </MudContainer>
+}
+
+@code {
+    [Parameter] public int equipoId { get; set; }
+    private bool cargando = true;
+    private Equipo? equipo;
+    private List<Jugador> jugadores = new List<Jugador>();
+    private List<EstadisticaJugador> goleadores = new List<EstadisticaJugador>();
+    private List<EstadisticaJugador> jugadoresAmarillas = new List<EstadisticaJugador>();
+    private List<EstadisticaJugador> jugadoresRojas = new List<EstadisticaJugador>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarDatosEquipoAsync();
+        cargando = false;
+    }
+
+    private async Task CargarDatosEquipoAsync()
+    {
+        equipo = await db.Equipos.Include(e => e.Jugadores)
+                                  .ThenInclude(j => j.Goles)
+                                  .Include(e => e.Jugadores)
+                                  .ThenInclude(j => j.Amonestaciones)
+                                  .FirstOrDefaultAsync(e => e.EquipoId == equipoId);
+
+        if (equipo != null)
+        {
+            jugadores = equipo.Jugadores.ToList();
+            goleadores = CalcularEstadisticas(equipo.Jugadores, "Goles");
+            jugadoresAmarillas = CalcularEstadisticas(equipo.Jugadores, "Amarilla");
+            jugadoresRojas = CalcularEstadisticas(equipo.Jugadores, "Roja");
+        }
+    }
+
+    private List<EstadisticaJugador> CalcularEstadisticas(ICollection<Jugador> jugadores, string tipo)
+    {
+        return jugadores.Select(j => new EstadisticaJugador
+            {
+                Jugador = j,
+                Nombre = j.Nombre,
+                Tarjetas = tipo == "Goles" ? j.Goles.Count : j.Amonestaciones.Count(a => a.Tipo == tipo),
+                Goles = tipo == "Goles" ? j.Goles.Count : 0
+            })
+        .Where(e => tipo == "Goles" ? e.Goles > 0 : e.Tarjetas > 0)
+        .OrderByDescending(e => tipo == "Goles" ? e.Goles : e.Tarjetas)
+        .ToList();
+    }
+
+    private void Regresar()
+    {
+        Navigation.NavigateTo("/");
+    }
+}
